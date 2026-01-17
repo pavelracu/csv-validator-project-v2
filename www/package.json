@@ -1,0 +1,34 @@
+{
+  "name": "www",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "wasm:build": "echo '🦀 Building Wasm...' && pwd && cd ../rust-csv-validator && wasm-pack build --target web && echo '✅ Build Complete'",
+    "wasm:copy": "echo '📂 Copying to React...' && pwd && rm -rf ./src/pkg && cp -r ../rust-csv-validator/pkg ./src/ && echo '✅ Copy Complete'",
+    "web:dev": "npm run wasm:copy && echo '🚀 Starting App...' && cd www && npm run dev"
+  },
+  "dependencies": {
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.23",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "vite": "^7.2.4"
+  }
+}
