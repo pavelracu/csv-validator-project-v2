@@ -42,6 +42,22 @@ pub struct CsvProcessor {
 
 #[wasm_bindgen]
 impl CsvProcessor {
+
+    pub fn get_content_as_csv(&self) -> Result<String, JsValue> {
+        let mut wtr = csv::Writer::from_writer(vec![]);
+        
+        // Write headers
+        wtr.write_record(&self.headers).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        
+        // Write all records (including fixed ones)
+        for record in &self.records {
+            wtr.write_record(record).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        }
+        
+        // Return string
+        String::from_utf8(wtr.into_inner().unwrap()).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+    
     #[wasm_bindgen(constructor)]
     pub fn new(csv_data: &str, rules_json: &str) -> Result<CsvProcessor, JsValue> {
         let rules: Vec<ColumnRule> = serde_json::from_str(rules_json)

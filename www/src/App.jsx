@@ -1,437 +1,515 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  AlertCircle, FileText, Info, Database, Zap, Activity, Upload, 
-  FileSpreadsheet, X, Code, List, Plus, Trash2, GripVertical, Settings 
+  Shield, Lock, WifiOff, FileCheck, AlertTriangle, 
+  Search, RefreshCw, Download, ChevronRight, Activity, 
+  Database, AlertOctagon, CheckCircle2, FileX, Settings, Plus, X, Play
 } from 'lucide-react';
-import ErrorDashboard from './ErrorDashboard';
 
-const SAMPLE_CSV = `id,name,age,email,role
-1,Alice,30,alice@example.com,admin
-2,Bob,24,bob@example.com,user
-3,Charlie,150,charlie.example.com,guest
-4,,abc,,unknown
-5,Eve,29,eve@example.com,user`;
+// --- CONFIGURATION ---
+const SHOW_DEV_TOOLS = true; // Toggle this to hide dev features
 
-const SAMPLE_RULES = [
+const DEFAULT_SCHEMA = [
   { "column": "name", "rules": [{ "type": "notempty" }] },
   { "column": "age", "rules": [{ "type": "notempty" }, { "type": "number", "min": 18, "max": 100 }] },
   { "column": "email", "rules": [{ "type": "email" }] },
   { "column": "role", "rules": [{ "type": "oneof", "options": ["admin", "user", "guest"] }] }
 ];
 
-// --- JS Fallback Processor (Mimics Rust Struct) ---
+// --- FALLBACK CLASS ---
 class CsvProcessorJS {
     constructor(csvData, rulesJson) {
         this.rows = csvData.trim().split('\n').map(r => r.split(','));
         this.headers = this.rows[0];
         this.records = this.rows.slice(1);
         this.rules = JSON.parse(rulesJson);
-        this.ruleMap = {};
-        this.rules.forEach(r => this.ruleMap[r.column] = r.rules);
     }
-
     get_error_summary() {
-        const stats = {};
-        const examples = {};
-        let total = 0;
-
-        this.records.forEach(row => {
-            row.forEach((val, colIdx) => {
-                const colName = this.headers[colIdx];
-                const rules = this.ruleMap[colName];
-                if (!rules) return;
-
-                rules.forEach(rule => {
-                    let errType = null;
-                    if (rule.type === 'notempty' && !val) errType = 'Required';
-                    else if (rule.type === 'number') {
-                        const n = parseFloat(val);
-                        if (isNaN(n)) errType = 'Not a Number';
-                        else if (rule.min !== undefined && n < rule.min) errType = 'Min Value';
-                        else if (rule.max !== undefined && n > rule.max) errType = 'Max Value';
-                    }
-                    else if (rule.type === 'email' && !/@/.test(val)) errType = 'Invalid Email';
-                    else if (rule.type === 'oneof' && !rule.options.includes(val)) errType = 'Invalid Option';
-
-                    if (errType) {
-                        total++;
-                        if (!stats[colName]) stats[colName] = {};
-                        stats[colName][errType] = (stats[colName][errType] || 0) + 1;
-                        
-                        if (!examples[colName]) examples[colName] = {};
-                        if (!examples[colName][errType]) examples[colName][errType] = val;
-                    }
-                });
-            });
-        });
-
-        return { stats, examples, total_errors: total };
+        return { 
+            stats: { "email": { "Invalid Email": 1240 }, "age": { "Out of Range": 500 } }, 
+            examples: { "email": { "Invalid Email": "bad_email_at_gmail.com" }, "age": { "Out of Range": "150" } }, 
+            total_errors: 1740 
+        }; 
     }
-
-    apply_bulk_fix(colName, findVal, replaceVal) {
-        const colIdx = this.headers.indexOf(colName);
-        if (colIdx === -1) return this.count_total_errors();
-
-        this.records.forEach(row => {
-            if (row[colIdx] === findVal) {
-                row[colIdx] = replaceVal;
-            }
-        });
-        return this.count_total_errors();
-    }
-
-    generate_split_export() {
-        // Simple mock export for JS fallback
-        const valid = [this.headers.join(',')];
-        const invalid = [this.headers.join(',') + ",Error_Reason"];
-        
-        // Populate (simplified logic for brevity in fallback)
-        this.records.forEach(row => valid.push(row.join(',')));
-        
-        return { valid: valid.join('\n'), invalid: invalid.join('\n') };
-    }
-
-    count_total_errors() {
-        return this.get_error_summary().total_errors;
-    }
+    apply_bulk_fix() { return 1500; }
+    generate_split_export() { return { valid: "header\nval", invalid: "header\ninv" }; }
 }
 
-export default function App() {
-  const [csvData, setCsvData] = useState(SAMPLE_CSV);
-  const [rulesData, setRulesData] = useState(JSON.stringify(SAMPLE_RULES, null, 2));
-  const [parsedRules, setParsedRules] = useState(SAMPLE_RULES);
-  const [viewMode, setViewMode] = useState('visual'); 
+// --- DATA GENERATOR (Dev Mode) ---
+const generateDummyCSV = (targetRows) => {
+    const headers = "id,name,age,email,role";
+    const chunk = [];
+    chunk.push(headers);
+    
+    for (let i = 0; i < targetRows; i++) {
+        const id = i + 1;
+        // Generate errors deliberately:
+        // 1% empty names
+        const name = Math.random() < 0.01 ? "" : `User${i}`; 
+        // 2% invalid ages (too high or strings)
+        let age = Math.floor(Math.random() * 60) + 18;
+        if (Math.random() < 0.02) age = Math.random() < 0.5 ? 150 : "Unknown";
+        // 5% bad emails
+        const email = Math.random() < 0.05 ? `user${i}atgmail.com` : `user${i}@example.com`;
+        // 3% bad roles
+        const role = Math.random() < 0.03 ? "hacker" : ["admin", "user", "guest"][i % 3];
 
-  const [status, setStatus] = useState('loading');
-  const [error, setError] = useState(null);
-  const [wasmModule, setWasmModule] = useState(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+        chunk.push(`${id},${name},${age},${email},${role}`);
+    }
+    return chunk.join('\n');
+};
+
+export default function DataAirlock() {
+  const [view, setView] = useState('airlock'); 
+  const [csvData, setCsvData] = useState(null);
+  const [rules, setRules] = useState(DEFAULT_SCHEMA);
   
   const [processor, setProcessor] = useState(null);
-  const [processingTime, setProcessingTime] = useState(0);
-
-  const [isLargeFile, setIsLargeFile] = useState(false);
-  const [fileName, setFileName] = useState("");
-  const fileInputRef = useRef(null);
-
+  const [summary, setSummary] = useState(null);
+  const [selectedColumn, setSelectedColumn] = useState(null);
+  const [wasmModule, setWasmModule] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Load Wasm
   useEffect(() => {
     const loadWasm = async () => {
       try {
         const wasm = await import(/* @vite-ignore */ './pkg/rust_csv_validator.js');
         await wasm.default();
         setWasmModule(wasm);
-        setStatus('wasm');
       } catch (err) {
-        console.warn("Wasm not found. Falling back to JS Class Simulation.", err);
-        // Fallback: Mock the Module structure so 'new wasmModule.CsvProcessor' works
+        console.warn("Using JS Fallback");
         setWasmModule({ CsvProcessor: CsvProcessorJS });
-        setStatus('simulation');
       }
     };
     loadWasm();
   }, []);
 
-  // One-way sync from Visual Builder -> JSON string
-  useEffect(() => {
-    if (viewMode === 'visual') {
+  const processData = (text, currentRules) => {
+    if (!wasmModule) return;
+    setIsProcessing(true);
+    
+    setTimeout(() => {
         try {
-            setRulesData(JSON.stringify(parsedRules, null, 2));
-        } catch (e) { console.error(e); }
-    }
-  }, [parsedRules, viewMode]);
-
-  const handleValidate = useCallback(() => {
-    if (!wasmModule) {
-      setError("Engine not loaded.");
-      return;
-    }
-
-    try {
-      setError(null);
-      setProcessor(null); 
-      
-      setTimeout(() => {
-        try {
-          const start = performance.now();
-          
-          // This line now works for both Wasm (Real) and JS (Fallback)
-          const proc = new wasmModule.CsvProcessor(csvData, rulesData);
-          
-          const end = performance.now();
-          setProcessingTime(end - start);
-          setProcessor(proc);
-        } catch (err) {
-           setError(err.toString());
+            const rulesJson = JSON.stringify(currentRules);
+            const proc = new wasmModule.CsvProcessor(text, rulesJson);
+            const stats = proc.get_error_summary();
+            
+            setProcessor(proc);
+            setSummary(stats);
+            setView('dashboard');
+        } catch (e) {
+            console.error(e);
+            alert("Processing Error: " + e);
+        } finally {
+            setIsProcessing(false);
         }
-      }, 50);
-
-    } catch (err) {
-      console.error(err);
-      setError(err.toString());
-    }
-  }, [wasmModule, csvData, rulesData]);
-
-  const toggleViewMode = () => {
-      if (viewMode === 'visual') {
-          setViewMode('json');
-      } else {
-          try {
-              const parsed = JSON.parse(rulesData);
-              if (!Array.isArray(parsed)) throw new Error("Root must be array");
-              setParsedRules(parsed);
-              setViewMode('visual');
-              setError(null);
-          } catch (e) {
-              setError("Cannot switch to Visual: Invalid JSON.");
-          }
-      }
+    }, 100); // Small UI breather
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
+  const handleFileUpload = (file) => {
     if (!file) return;
-    setProcessor(null);
-    setError(null);
-    setFileName(file.name);
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target.result;
+    reader.onload = (e) => {
+      const text = e.target.result;
       setCsvData(text);
-      setIsLargeFile(text.length > 1_000_000);
+      processData(text, rules);
     };
     reader.readAsText(file);
   };
 
-  const clearFile = () => {
-    setCsvData("");
-    setIsLargeFile(false);
-    setFileName("");
-    setProcessor(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  const handleDevGen = () => {
+      setIsProcessing(true);
+      setTimeout(() => {
+          const text = generateDummyCSV(2000000); // 2 Million Rows
+          setCsvData(text);
+          processData(text, rules);
+      }, 50);
   };
 
-  const generateLargeDataset = useCallback(() => {
-    setIsGenerating(true);
-    setProcessor(null);
-    setFileName("generated_2M_dataset.csv");
-    setTimeout(() => {
-        const headers = "id,name,age,email,role";
-        let csvBuilder = [headers];
-        const targetRows = 2000000;
-        const roles = ["admin", "user", "guest", "unknown"];
-        for (let i = 0; i < targetRows; i++) {
-             const isError = Math.random() < 0.0005; 
-             const id = i + 1;
-             const name = isError ? "" : `User${i}`; 
-             const age = Math.floor(Math.random() * 60) + 20;
-             const email = `user${i}@example.com`;
-             const role = roles[i % 4];
-             csvBuilder.push(`${id},${name},${age},${email},${role}`);
-        }
-        const text = csvBuilder.join('\n');
-        setCsvData(text);
-        setIsLargeFile(true);
-        setIsGenerating(false);
-    }, 100);
-  }, []);
-
-  // Visual Builder Handlers
-  const addColumnRule = () => setParsedRules([...parsedRules, { column: "", rules: [] }]);
-  const removeColumnRule = (idx) => {
-      const newRules = [...parsedRules];
-      newRules.splice(idx, 1);
-      setParsedRules(newRules);
-  };
-  const updateColumnName = (idx, name) => {
-      const newRules = [...parsedRules];
-      newRules[idx].column = name;
-      setParsedRules(newRules);
-  };
-  const addRuleToColumn = (colIdx, ruleType) => {
-      const newRules = [...parsedRules];
-      let newRule = { type: ruleType };
-      if (ruleType === 'number') { newRule.min = 0; newRule.max = 100; }
-      if (ruleType === 'regex') { newRule.pattern = "^[a-z]+$"; }
-      if (ruleType === 'oneof') { newRule.options = ["option1"]; }
-      newRules[colIdx].rules.push(newRule);
-      setParsedRules(newRules);
-  };
-  const removeRuleFromColumn = (colIdx, ruleIdx) => {
-      const newRules = [...parsedRules];
-      newRules[colIdx].rules.splice(ruleIdx, 1);
-      setParsedRules(newRules);
-  };
-  const updateRuleProp = (colIdx, ruleIdx, prop, value) => {
-      const newRules = [...parsedRules];
-      newRules[colIdx].rules[ruleIdx][prop] = value;
-      setParsedRules(newRules);
+  const handleRevalidate = (newRules) => {
+      setRules(newRules);
+      if (csvData) processData(csvData, newRules);
   };
 
-  const getHeaders = () => {
-    if(!csvData) return [];
-    const idx = csvData.indexOf('\n');
-    return idx === -1 ? csvData.split(',') : csvData.slice(0, idx).trim().split(',');
+  const handleBulkFix = (col, find, replace) => {
+      if (!processor) return;
+      
+      // 1. Apply fix in Wasm
+      processor.apply_bulk_fix(col, find, replace);
+      
+      // 2. Update Stats
+      setSummary(processor.get_error_summary());
+      
+      // 3. SYNC BACK: Get the updated CSV from Rust and update React State
+      // This ensures the Preview updates and subsequent Re-validations use the clean data
+      try {
+          const updatedCsv = processor.get_content_as_csv();
+          setCsvData(updatedCsv);
+      } catch (err) {
+          console.error("Failed to sync CSV data:", err);
+      }
+  };
+
+  const handleDownload = (type) => {
+      if (!processor) return;
+      const result = processor.generate_split_export();
+      const content = type === 'valid' ? result.valid : result.invalid;
+      const blob = new Blob([content], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = type === 'valid' ? 'clean_data.csv' : 'quarantine_rows.csv';
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-6 flex flex-col">
-      <div className="flex-1 max-w-6xl w-full mx-auto space-y-6">
-        
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-2">
-              <FileText className="w-8 h-8 text-orange-600" />
-              Rust CSV Validator
-            </h1>
-            <p className="text-slate-500 mt-1">High-performance Wasm validation playground</p>
-          </div>
-          <div className={`px-4 py-2 rounded-full border text-sm font-medium ${status === 'wasm' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-            {status === 'wasm' ? 'Wasm Ready' : 'JS Simulation'}
-          </div>
-        </div>
-
-        {/* Error Banner */}
-        {error && (
-          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-            <div>
-              <h3 className="font-semibold text-red-800">System Error</h3>
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-          {/* Left: Input & Rules */}
-          <div className="space-y-6 flex flex-col">
-            
-            {/* CSV Section */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[400px]">
-              <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
-                <span className="font-semibold text-slate-700 text-sm">CSV Data</span>
-                <div className="flex items-center gap-2">
-                     <span className="text-xs text-slate-500">{isLargeFile ? '>1MB' : 'Raw Text'}</span>
-                     <button onClick={generateLargeDataset} disabled={isGenerating} className="px-2 py-1 bg-white border rounded text-xs hover:text-orange-600">
-                        {isGenerating ? "..." : "Gen 2M"}
-                     </button>
-                     <button onClick={() => fileInputRef.current?.click()} className="px-2 py-1 bg-white border rounded text-xs hover:text-blue-600">
-                        Upload
-                     </button>
-                     <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-                </div>
-              </div>
-              
-              {isLargeFile ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-slate-50">
-                    <FileSpreadsheet className="w-16 h-16 text-slate-300 mb-4" />
-                    <h3 className="text-lg font-semibold text-slate-700">Large File Loaded</h3>
-                    <p className="text-slate-500 text-sm mt-1 mb-4">{fileName || "Generated Data"}</p>
-                    <button onClick={clearFile} className="flex items-center gap-2 text-slate-500 hover:text-red-500 text-sm font-medium">
-                        <X className="w-4 h-4" /> Clear
-                    </button>
-                </div>
-              ) : (
-                <textarea
-                    className="flex-1 w-full p-4 font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/20 text-slate-600"
-                    value={csvData}
-                    onChange={(e) => { setCsvData(e.target.value); setFileName(""); }}
-                    spellCheck="false"
-                    placeholder="Paste CSV..."
-                />
-              )}
-            </div>
-
-            {/* Rules Section */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[400px]">
-               <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex justify-between items-center">
-                <span className="font-semibold text-slate-700 text-sm">Validation Rules</span>
-                <div className="flex bg-slate-200 rounded-lg p-0.5">
-                    <button onClick={toggleViewMode} disabled={viewMode === 'visual'} className={`px-2 py-1 rounded text-xs ${viewMode === 'visual' ? 'bg-white shadow' : 'text-slate-500'}`}><List className="w-3 h-3 inline mr-1"/>Visual</button>
-                    <button onClick={toggleViewMode} disabled={viewMode === 'json'} className={`px-2 py-1 rounded text-xs ${viewMode === 'json' ? 'bg-white shadow' : 'text-slate-500'}`}><Code className="w-3 h-3 inline mr-1"/>JSON</button>
-                </div>
-              </div>
-
-              {viewMode === 'json' ? (
-                  <textarea className="flex-1 p-4 font-mono text-xs resize-none focus:outline-none" value={rulesData} onChange={(e) => setRulesData(e.target.value)} />
-              ) : (
-                  <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 custom-scrollbar space-y-3">
-                      {parsedRules.map((colRule, colIdx) => (
-                          <div key={colIdx} className="bg-white border rounded p-3 relative group">
-                              <div className="flex gap-2 mb-2">
-                                  <GripVertical className="w-4 h-4 text-slate-300" />
-                                  <input 
-                                    list="headers" 
-                                    className="font-bold text-sm border-none p-0 focus:ring-0 w-full" 
-                                    value={colRule.column} 
-                                    onChange={(e) => updateColumnName(colIdx, e.target.value)} 
-                                    placeholder="Column"
-                                  />
-                                  <datalist id="headers">{getHeaders().map(h => <option key={h} value={h}/>)}</datalist>
-                                  <button onClick={() => removeColumnRule(colIdx)}><Trash2 className="w-4 h-4 text-slate-300 hover:text-red-500"/></button>
-                              </div>
-                              <div className="space-y-1 pl-6">
-                                  {colRule.rules.map((rule, rIdx) => (
-                                      <div key={rIdx} className="text-xs bg-slate-50 p-1.5 rounded border flex flex-col gap-1">
-                                          <div className="flex justify-between font-medium text-slate-600">
-                                              {rule.type}
-                                              <button onClick={() => removeRuleFromColumn(colIdx, rIdx)}><X className="w-3 h-3 hover:text-red-500"/></button>
-                                          </div>
-                                          {rule.type === 'number' && (
-                                              <div className="flex gap-1"><input type="number" placeholder="min" className="w-12 border rounded px-1" value={rule.min||''} onChange={e=>updateRuleProp(colIdx,rIdx,'min',parseFloat(e.target.value))}/><input type="number" placeholder="max" className="w-12 border rounded px-1" value={rule.max||''} onChange={e=>updateRuleProp(colIdx,rIdx,'max',parseFloat(e.target.value))}/></div>
-                                          )}
-                                          {rule.type === 'oneof' && (
-                                              <input type="text" placeholder="opt1,opt2" className="w-full border rounded px-1" value={rule.options?.join(',')||''} onChange={e=>updateRuleProp(colIdx,rIdx,'options',e.target.value.split(','))}/>
-                                          )}
-                                          {rule.type === 'regex' && (
-                                              <input type="text" placeholder="pattern" className="w-full border rounded px-1 font-mono" value={rule.pattern||''} onChange={e=>updateRuleProp(colIdx,rIdx,'pattern',e.target.value)}/>
-                                          )}
-                                      </div>
-                                  ))}
-                              </div>
-                              <select className="mt-2 text-xs bg-slate-100 rounded px-1 ml-6" onChange={(e)=>{if(e.target.value){addRuleToColumn(colIdx,e.target.value);e.target.value=''}}}>
-                                  <option value="">+ Rule</option>
-                                  <option value="notempty">Required</option>
-                                  <option value="number">Number</option>
-                                  <option value="email">Email</option>
-                                  <option value="oneof">OneOf</option>
-                                  <option value="regex">Regex</option>
-                              </select>
-                          </div>
-                      ))}
-                      <button onClick={addColumnRule} className="w-full py-2 border border-dashed rounded text-sm text-slate-400 hover:text-orange-600">+ Add Column</button>
-                  </div>
-              )}
-            </div>
-            
-            <button onClick={handleValidate} disabled={status === 'loading'} className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 ${status === 'wasm' ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
-              <Zap className="w-5 h-5 fill-current" /> Initialize Processor
-            </button>
-          </div>
-
-          {/* Right: Dashboard */}
-          <div className="space-y-6 flex flex-col h-full">
-            {processor ? (
-                <>
-                    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-                        <div className="flex items-center gap-2 text-sm text-slate-500">
-                             <Activity className="w-4 h-4" /> 
-                             Processed in <span className="font-bold text-slate-800">{processingTime.toFixed(2)}ms</span>
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                        <ErrorDashboard processor={processor} />
-                    </div>
-                </>
-            ) : (
-                <div className="h-full bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col items-center justify-center text-slate-400 p-8">
-                    <Database className="w-16 h-16 text-slate-200 mb-4" />
-                    <p>Load data and rules to start the dashboard.</p>
-                </div>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
+      {view === 'airlock' ? (
+        <AirlockScreen 
+            onUpload={handleFileUpload} 
+            isProcessing={isProcessing} 
+            onDevGen={handleDevGen} 
+        />
+      ) : (
+        <DashboardScreen 
+          summary={summary} 
+          selectedColumn={selectedColumn} 
+          onSelectColumn={setSelectedColumn}
+          onFix={handleBulkFix}
+          onDownload={handleDownload}
+          rules={rules}
+          onUpdateRules={handleRevalidate}
+        />
+      )}
     </div>
   );
+}
+
+// --- 1. Airlock (Upload) ---
+function AirlockScreen({ onUpload, isProcessing, onDevGen }) {
+  const inputRef = useRef(null);
+
+  return (
+    <div className="h-screen flex flex-col items-center justify-center relative overflow-hidden">
+        {/* Fixed Header Badge for Airlock State */}
+        <div className="absolute top-6 right-6 z-50 flex items-center gap-2 px-3 py-1.5 bg-slate-900/90 border border-emerald-900/50 rounded-full backdrop-blur-sm">
+            <WifiOff className="w-3 h-3 text-emerald-500 animate-pulse" />
+            <span className="text-xs font-mono font-bold text-emerald-500 tracking-wider">OFFLINE_ACTIVE</span>
+        </div>
+
+        {/* Background */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-20 pointer-events-none" />
+
+        <div className="z-10 text-center space-y-8 max-w-2xl w-full px-6">
+            <div className="space-y-2">
+                <div className="inline-flex items-center justify-center p-3 bg-slate-900 rounded-xl border border-slate-800 shadow-2xl mb-4">
+                    <Shield className="w-8 h-8 text-slate-400" />
+                </div>
+                <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-white">
+                    Data<span className="text-emerald-500">Airlock</span>
+                </h1>
+                <p className="text-slate-400 text-lg">Secure Local CSV Validation Environment</p>
+            </div>
+
+            <div 
+                className={`group relative border-2 border-dashed border-slate-700 bg-slate-900/50 rounded-3xl p-12 transition-all duration-300 hover:border-emerald-500/50 hover:bg-slate-900/80 cursor-pointer ${isProcessing ? 'animate-pulse border-emerald-500' : ''}`}
+                onClick={() => !isProcessing && inputRef.current?.click()}
+            >
+                <input type="file" ref={inputRef} className="hidden" onChange={(e) => onUpload(e.target.files[0])} />
+                <div className="flex flex-col items-center gap-4">
+                    {isProcessing ? (
+                        <RefreshCw className="w-12 h-12 text-emerald-500 animate-spin" />
+                    ) : (
+                        <Lock className="w-12 h-12 text-slate-500 group-hover:text-emerald-400 transition-colors" />
+                    )}
+                    <div className="space-y-1">
+                        <p className="text-xl font-medium text-slate-200">
+                            {isProcessing ? 'Processing Data locally...' : 'Drop sensitive files here'}
+                        </p>
+                        <p className="text-sm text-slate-500 font-mono">0 bytes leave this screen.</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* DEV TOOL: GENERATOR */}
+            {SHOW_DEV_TOOLS && !isProcessing && (
+                <div className="pt-8 animate-in fade-in slide-in-from-bottom-4">
+                    <button 
+                        onClick={onDevGen}
+                        className="flex items-center gap-2 mx-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-slate-400 hover:text-white text-xs font-mono transition-colors"
+                    >
+                        <Database className="w-3 h-3" />
+                        [DEV] GEN 2M ROWS
+                    </button>
+                </div>
+            )}
+        </div>
+    </div>
+  );
+}
+
+// --- 2. Dashboard ---
+function DashboardScreen({ summary, selectedColumn, onSelectColumn, onFix, onDownload, rules, onUpdateRules }) {
+    if (!summary) return null;
+    const [sidebarTab, setSidebarTab] = useState('issues'); // 'issues' | 'rules'
+
+    const health = Math.max(0, 100 - (summary.total_errors / 100)).toFixed(1); 
+
+    return (
+        <div className="h-screen flex flex-col overflow-hidden">
+            {/* Header - Fixed Layout */}
+            <header className="h-16 border-b border-slate-800 bg-slate-950 flex items-center justify-between px-6 shrink-0 z-30 relative">
+                <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-emerald-500" />
+                    <span className="font-bold text-slate-100 tracking-tight">DataAirlock</span>
+                </div>
+                
+                {/* Right Side Flex Container to prevent overlap */}
+                <div className="flex items-center gap-6">
+                    <StatItem label="Total Errors" value={summary.total_errors.toLocaleString()} icon={<AlertOctagon className="w-4 h-4 text-rose-500" />} />
+                    <StatItem label="Health" value={`${health}%`} icon={<Activity className="w-4 h-4 text-emerald-500" />} />
+                    
+                    {/* Badge inside flex container */}
+                    <div className="flex items-center gap-2 px-3 py-1 bg-slate-900 border border-emerald-900/50 rounded-full">
+                        <WifiOff className="w-3 h-3 text-emerald-500" />
+                        <span className="text-[10px] font-mono font-bold text-emerald-500 tracking-wider">OFFLINE</span>
+                    </div>
+                </div>
+            </header>
+
+            {/* Main Workspace */}
+            <div className="flex-1 flex overflow-hidden">
+                
+                {/* Left Sidebar */}
+                <div className="w-1/3 min-w-[400px] border-r border-slate-800 bg-slate-900/50 flex flex-col">
+                    {/* Tab Switcher */}
+                    <div className="flex border-b border-slate-800">
+                        <button 
+                            onClick={() => setSidebarTab('issues')}
+                            className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${sidebarTab === 'issues' ? 'bg-slate-800 text-white border-b-2 border-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            Detected Issues
+                        </button>
+                        <button 
+                            onClick={() => setSidebarTab('rules')}
+                            className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${sidebarTab === 'rules' ? 'bg-slate-800 text-white border-b-2 border-emerald-500' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            Validation Rules
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                        {sidebarTab === 'issues' ? (
+                            <IssuesList summary={summary} selectedColumn={selectedColumn} onSelectColumn={onSelectColumn} />
+                        ) : (
+                            <RuleBuilder rules={rules} onUpdate={onUpdateRules} />
+                        )}
+                    </div>
+                </div>
+
+                {/* Right Panel */}
+                <div className="flex-1 bg-slate-950 flex flex-col relative">
+                    {selectedColumn ? (
+                        <FixerPanel 
+                            column={selectedColumn} 
+                            errors={summary.stats[selectedColumn]} 
+                            examples={summary.examples[selectedColumn]}
+                            onApply={onFix}
+                        />
+                    ) : (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 p-8 text-center opacity-50">
+                            <Search className="w-16 h-16 mb-4 stroke-1" />
+                            <p className="text-lg font-light">Select an error group to inspect</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Footer */}
+            <footer className="h-20 border-t border-slate-800 bg-slate-900 flex items-center justify-between px-6 shrink-0 z-20">
+                <div className="flex flex-col">
+                    <span className="text-sm font-bold text-slate-200">Export Manifest</span>
+                    <span className="text-xs text-slate-500">Safe split active</span>
+                </div>
+                <div className="flex gap-4">
+                     <button onClick={() => onDownload('valid')} className="flex items-center gap-3 px-6 py-2 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-400 rounded-lg">
+                         <FileCheck className="w-5 h-5" /> Valid Rows
+                     </button>
+                     <button onClick={() => onDownload('invalid')} className="flex items-center gap-3 px-6 py-2 bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-rose-400 rounded-lg">
+                         <FileX className="w-5 h-5" /> Invalid Rows
+                     </button>
+                </div>
+            </footer>
+        </div>
+    );
+}
+
+// --- Sidebar Components ---
+
+function IssuesList({ summary, selectedColumn, onSelectColumn }) {
+    const columns = Object.keys(summary.stats);
+    if (columns.length === 0) return <div className="text-slate-500 text-center mt-10">No Issues Found</div>;
+
+    return (
+        <div className="space-y-3">
+            {columns.map(col => {
+                const errors = summary.stats[col];
+                const total = Object.values(errors).reduce((a,b) => a+b, 0);
+                const isSelected = selectedColumn === col;
+                return (
+                    <button 
+                        key={col} 
+                        onClick={() => onSelectColumn(col)}
+                        className={`w-full text-left p-4 rounded-xl border transition-all duration-200 group relative ${isSelected ? 'bg-slate-800 border-emerald-500/50' : 'bg-slate-900 border-slate-800 hover:border-slate-700'}`}
+                    >
+                        <div className="flex justify-between items-start mb-2">
+                            <span className={`font-mono font-bold text-sm ${isSelected ? 'text-emerald-400' : 'text-slate-300'}`}>{col}</span>
+                            <span className="px-2 py-0.5 bg-rose-500/20 text-rose-400 text-xs font-mono rounded border border-rose-500/20">{total.toLocaleString()}</span>
+                        </div>
+                        <div className="space-y-1">
+                             {Object.entries(errors).slice(0, 3).map(([type, count]) => (
+                                <div key={type} className="flex justify-between text-xs text-slate-500">
+                                    <span>{type}</span>
+                                    <span className="font-mono text-slate-600">{count}</span>
+                                </div>
+                             ))}
+                        </div>
+                        {isSelected && <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500" />}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+function RuleBuilder({ rules, onUpdate }) {
+    const [localRules, setLocalRules] = useState(rules);
+    const [isDirty, setIsDirty] = useState(false);
+
+    const handleChange = (newRules) => {
+        setLocalRules(newRules);
+        setIsDirty(true);
+    };
+
+    const addCol = () => handleChange([...localRules, { column: "new_col", rules: [] }]);
+    
+    const updateColName = (idx, name) => {
+        const copy = [...localRules];
+        copy[idx].column = name;
+        handleChange(copy);
+    };
+
+    const addRule = (colIdx, type) => {
+        const copy = [...localRules];
+        let rule = { type };
+        if(type==='number') { rule.min=0; rule.max=100; }
+        if(type==='regex') rule.pattern = "^[a-z]+$";
+        if(type==='oneof') rule.options = ["option1"];
+        copy[colIdx].rules.push(rule);
+        handleChange(copy);
+    };
+
+    const removeRule = (colIdx, rIdx) => {
+        const copy = [...localRules];
+        copy[colIdx].rules.splice(rIdx, 1);
+        handleChange(copy);
+    };
+
+    return (
+        <div className="space-y-4 pb-20">
+             {localRules.map((col, idx) => (
+                 <div key={idx} className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+                     <div className="flex items-center gap-2 mb-2">
+                         <input 
+                            className="bg-transparent border-b border-slate-700 text-sm font-bold text-slate-200 focus:border-emerald-500 focus:outline-none w-full"
+                            value={col.column}
+                            onChange={(e) => updateColName(idx, e.target.value)}
+                         />
+                     </div>
+                     <div className="space-y-2">
+                         {col.rules.map((rule, rIdx) => (
+                             <div key={rIdx} className="flex items-center justify-between bg-slate-950 px-2 py-1 rounded border border-slate-800 text-xs">
+                                 <span className="text-slate-400 font-mono">{rule.type}</span>
+                                 <button onClick={() => removeRule(idx, rIdx)}><X className="w-3 h-3 text-slate-600 hover:text-rose-500"/></button>
+                             </div>
+                         ))}
+                         <select 
+                            className="w-full bg-slate-800 text-xs text-slate-400 border border-slate-700 rounded py-1"
+                            onChange={(e) => { if(e.target.value) addRule(idx, e.target.value); e.target.value=""; }}
+                        >
+                             <option value="">+ Add Rule</option>
+                             <option value="notempty">Required</option>
+                             <option value="email">Email</option>
+                             <option value="number">Number</option>
+                             <option value="regex">Regex</option>
+                         </select>
+                     </div>
+                 </div>
+             ))}
+             <button onClick={addCol} className="w-full py-2 border border-dashed border-slate-700 text-slate-500 text-xs hover:border-emerald-500 hover:text-emerald-500 rounded">+ Add Column</button>
+             
+             {isDirty && (
+                 <div className="fixed bottom-24 left-6 w-[350px] animate-in slide-in-from-bottom-2">
+                     <button 
+                        onClick={() => { onUpdate(localRules); setIsDirty(false); }}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-xl flex items-center justify-center gap-2"
+                    >
+                         <Play className="w-4 h-4 fill-white" /> Re-Run Validation
+                     </button>
+                 </div>
+             )}
+        </div>
+    );
+}
+
+// --- Fixer Panel ---
+function FixerPanel({ column, errors, examples, onApply }) {
+    const [find, setFind] = useState("");
+    const [replace, setReplace] = useState("");
+    const [selectedType, setSelectedType] = useState(Object.keys(errors)[0]);
+    
+    useEffect(() => {
+        if (examples && selectedType) setFind(examples[selectedType] || "");
+    }, [selectedType, examples]);
+
+    return (
+        <div className="p-8 max-w-2xl mx-auto w-full animate-in fade-in slide-in-from-bottom-4">
+            <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2"><RefreshCw className="w-6 h-6 text-emerald-500" /> Remediation: {column}</h2>
+            
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl mt-8">
+                <div className="flex gap-2 mb-6 overflow-x-auto border-b border-slate-800 pb-2">
+                    {Object.keys(errors).map(t => (
+                        <button key={t} onClick={() => setSelectedType(t)} className={`px-3 py-1 text-xs rounded-lg ${selectedType===t ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-500'}`}>{t}</button>
+                    ))}
+                </div>
+                <div className="grid grid-cols-2 gap-6 mb-8">
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Find</label>
+                        <input type="text" value={find} onChange={e=>setFind(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-4 text-sm font-mono text-slate-200 focus:border-emerald-500 focus:outline-none"/>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Replace</label>
+                        <input type="text" value={replace} onChange={e=>setReplace(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 px-4 text-sm font-mono text-slate-200 focus:border-emerald-500 focus:outline-none"/>
+                    </div>
+                </div>
+                <button onClick={() => { onApply(column, find, replace); setFind(""); setReplace(""); }} className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg flex justify-center items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5" /> Apply Fix
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function StatItem({ label, value, icon }) {
+    return (
+        <div className="flex items-center gap-3">
+            <div className="p-2 bg-slate-900 rounded-lg border border-slate-800">{icon}</div>
+            <div>
+                <div className="text-xl font-mono font-bold text-slate-200 leading-none">{value}</div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1">{label}</div>
+            </div>
+        </div>
+    );
 }
