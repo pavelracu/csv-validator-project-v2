@@ -126,7 +126,9 @@ impl CsvProcessor {
         }
 
         let summary = ErrorSummary { stats, examples, total_errors };
-        Ok(serde_wasm_bindgen::to_value(&summary)?)
+        //New: Use json_compatible() to force HashMaps into Objects
+        let serializer = serde_wasm_bindgen::Serializer::json_compatible();
+        Ok(summary.serialize(&serializer).map_err(|e| JsValue::from_str(&e.to_string()))?)
     }
 
     pub fn apply_bulk_fix(&mut self, col_name: &str, target_val: &str, replace_val: &str) -> usize {
